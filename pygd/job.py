@@ -7,8 +7,10 @@ class Job(object):
     def __init__(self, pipeline, name, desc=""):
         self.pipeline = pipeline
         self.name = name
-        self.ifname = []
-        self.ofname = []
+        self.ifiles = []
+        self.ofiles = []
+        self.gfiles = []
+        self.mfiles = []
         self.prefunc = None
         self.postfunc = None
         self.description = desc
@@ -16,13 +18,17 @@ class Job(object):
     def is_done(self):
         '''check whether the job was done'''
         done_fname = self.get_done_fname()
-        if os.path.exists(done_fname):
+        print(done_fname)
+        if not os.path.exists(done_fname):
             return False
 
-        if len(self.ifname) == 0 or len(self.ofname) == 0:
+        if self.get_done_value() == 0:
             return False
 
-        if self.get_newest_mtime(self.ifname) > self.get_oldest_mtime(self.ofname + [done_fname]):
+        if len(self.ifiles) == 0 or len(self.ofiles) == 0:
+            return False
+
+        if self.get_newest_mtime(self.ifiles) > self.get_oldest_mtime(self.ofiles + [done_fname]):
             return False
 
         return True
@@ -31,13 +37,24 @@ class Job(object):
         logger.info("Start run job " + self.name)
         if self.prefunc != None:
             self.prefunc(self)
+
+        if self.is_done():
+            return True
+        else:
+            self.remove_done_file()
+            return False
             
     def postprocess(self, skipped):
         pass
 
+    def set_ifiles(self, ifiles):
+        self.ifiles = ifiles
+
+    def set_ofiles(self, ofiles):
+        self.ofiles = ofiles
 
     def get_script_folder(self):
-        return "./scripts"
+        return self.pipeline.get_script_folder()
 
     def get_script_fname(self):
         return os.path.join(self.get_script_folder(), self.name) + ".sh"
@@ -48,7 +65,23 @@ class Job(object):
     def get_log_fname(self):
         return self.get_script_fname() + ".log"
 
-    def get_done_value():pass
+    def get_done_value(self):
+        f = open(self.get_done_fname())
+        value = f.readline().strip()
+        if len(value) == 0:
+            return -1
+        else:
+            return int(value)
+            
+    def set_done_value(self, value):
+        f = open(self.get_done_fname(), "w")
+        f.write("%d" % value)
+
+    def remove_done_file(self):
+        fname = self.get_done_fname()
+        if os.path.exists(fname):
+            os.remove(fname)
+
     def get_oldest_mtime(self, fnames):
         return min([os.path.getmtime(fn) for fn in fnames])
 
@@ -56,13 +89,12 @@ class Job(object):
         return max([os.path.getmtime(fn) for fn in fnames])
 
     def run(self):
-        self.preprocess()
-
-        skipped = self.is_done()
+        skipped = self.preprocess()
+        print("skipped", skipped)
         if not skipped:
             self.runcore()
         
-        self.postprocess(self, skipped)
+        self.postprocess(skipped)
 
     def runcore(self):
         pass
@@ -79,6 +111,9 @@ class SerialJob(Job):
     def runcore(self):
         for job in self.jobs:
             job.run()
+        self.set_done_value(0)
+
+        
 
 
 class ParallelJob(Job):
@@ -88,7 +123,7 @@ class ParallelJob(Job):
 
 class ScriptJob(Job):
     def __init__(self, pl, name, desc=""):
-        super().__init__(self, name, desc)
+        super().__init__(pl, name, desc)
         self.commands = []
 
         
@@ -99,7 +134,7 @@ class ScriptJob(Job):
     def runcore(self):
         script_fname = self.get_script_fname()
         self.write(script_fname)
-        pass
+        self.pipeline.cluster.run_script(script_fname, 0, 0, "")
 
     def write(self, fname):
         ofile = open(fname, "w")
@@ -111,6 +146,7 @@ class ScriptJob(Job):
             ofile.write("\n")
 
         ofile.write("echo $retVal > %s\n" % self.get_done_fname())
+        os.chmod(fname, 0o744)
 
     def wrap_command(self, cmd):
         codes = [

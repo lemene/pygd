@@ -1,6 +1,7 @@
 import os
 import re
 import subprocess
+import time
 
 from . import cluster
 
@@ -21,12 +22,14 @@ class ClusterLocal(cluster.Cluster):
         return ProcessLocal(proc)
     
     def submit_script(self, script, threads, memeory, options):
-        cmd = [script]
-        cmd.append(options)
-        cmd.append(" 2>&1 | tee %s.log" % script)
+        cmd = "%s %s 2>&1 | tee %s.log" % (script, options, script)
 
-        proc = subprocess.Popen(cmd,shell=True)
+        proc = subprocess.Popen(cmd, shell=True)
         return ProcessLocal(proc)
+
+    def run_script(self, script, threads, memory, options):
+        proc = self.submit_script(script, threads, memory, options)
+        proc.wait()
         
 
 class ProcessLocal (cluster.Process):
@@ -40,5 +43,12 @@ class ProcessLocal (cluster.Process):
         else:
             return "C"
 
+    def wait(self):
+        r = self.status()
+        while r != "C":
+            time.sleep(10)
+            r = self.status()
+
+
     def stop(self):
-        self.proc.stop();
+        self.proc.stop()

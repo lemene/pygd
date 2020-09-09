@@ -1,11 +1,12 @@
 import os
 from .config import Config
+from . import cluster 
 
 class Pipeline(object):
     def __init__(self):
         self.configs = Config()
         self.eva = None
-        self.runner = None
+        self.cluster = cluster.create("local", 1)
 
         self.tasks = []
 
@@ -42,8 +43,8 @@ class Pipeline(object):
         return self.get_config("project", str)
 
     def get_script_folder(self):
-        return os.path.join([self.get_main_folder(), "scripts"])
+        return os.path.join(self.get_main_folder(), "scripts")
 
     def usage(self):
-        for cmd in self.commands:
-            cmd.usage()
+        for task in self.tasks:
+            task.usage()
